@@ -15,7 +15,6 @@ from torch_geometric.datasets import Planetoid, CoraFull, Amazon, Coauthor, Wiki
     WikipediaNetwork, HeterophilousGraphDataset, Actor, LRGBDataset, GNNBenchmarkDataset, TUDataset, DeezerEurope, \
     Twitch
 from .dataset.attributed_graph_dataset import AttributedGraphDataset
-from .dataset.heterophily_graph_dataset import load_pokec_mat
 from .dataset.transfer_learning_citation_dataset import CitationNetworkDataset
 from .dataset.zinc_dataset import ZINC
 
@@ -328,6 +327,8 @@ def load_node_task(params):
         return graph, splits
 
     elif name in ['pokec']:
+        from .dataset.heterophily_graph_dataset import load_pokec_mat
+
         if params['node_pe'] == 'rw':
             transform = T.Compose([T.RemoveSelfLoops(), T.ToUndirected(),
                                    T.AddRandomWalkPE(params['node_pe_dim'], 'pe')])
