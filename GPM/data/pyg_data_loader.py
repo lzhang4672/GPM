@@ -44,6 +44,9 @@ def get_split(graph, setting):
     elif setting == 'very_high':
         train_split = 0.8
         val_split = 0.1
+    elif setting == 'train80_test20':
+        train_split = 0.8
+        val_split = 0.0
     elif setting == 'pretrain':
         train_split = 1.0
         val_split = 0.0
@@ -97,9 +100,15 @@ def get_link_split(dataset):
     return splits
 
 
-def get_graph_split(dataset):
-    train_split = 0.8
-    val_split = 0.1
+def get_graph_split(dataset, setting='public'):
+    if setting == 'public':
+        train_split = 0.8
+        val_split = 0.1
+    elif setting == 'train80_test20':
+        train_split = 0.8
+        val_split = 0.0
+    else:
+        raise ValueError(f"Graph split setting error: {setting}")
 
     num_graphs = len(dataset)
     idx = torch.randperm(num_graphs)
@@ -574,8 +583,6 @@ def load_graph_task(params):
     data_path = params['data_path']
     split_setting = params['split']
 
-    assert split_setting == 'public'
-
     if params['node_pe'] == 'rw':
         transform = T.Compose([T.AddRandomWalkPE(params['node_pe_dim'], 'pe')])
     elif params['node_pe'] == 'lap':
@@ -669,13 +676,23 @@ def load_graph_task(params):
             return {'train': train_set, 'val': val_set, 'test': test_set}, None
 
         else:
-            splits = [get_graph_split(dataset)] * params['split_repeat']
+            splits = [get_graph_split(dataset, split_setting)] * params['split_repeat']
             return dataset, splits
 
-    elif name in ['mutag', 'nci1', 'dd', 'proteins', 'enzymes']:
-        assert split_setting == 'public'
+    elif name in ['mutag', 'mutagenicity', 'nci1', 'dd', 'proteins', 'proteins_gc', 'enzymes', 'ba2motifs',
+                  'bamultishapes']:
 
-        name_map = {'mutag': 'MUTAG', 'nci1': 'NCI1', 'dd': 'DD', 'proteins': 'PROTEINS', 'enzymes': 'ENZYMES'}
+        name_map = {
+            'mutag': 'MUTAG',
+            'mutagenicity': 'Mutagenicity',
+            'nci1': 'NCI1',
+            'dd': 'DD',
+            'proteins': 'PROTEINS',
+            'proteins_gc': 'PROTEINS',
+            'enzymes': 'ENZYMES',
+            'ba2motifs': 'BA2Motif',
+            'bamultishapes': 'BAMultiShapes',
+        }
         name = name_map[name]
 
         dataset = TUDataset(root=data_path, name=name, use_node_attr=True, use_edge_attr=True, transform=transform)
@@ -694,12 +711,11 @@ def load_graph_task(params):
             dataset._data.e_feat = e_feat.float()
             dataset._data.edge_attr = edge_attr_idx
 
-        splits = [get_graph_split(dataset)] * params['split_repeat']
+        splits = [get_graph_split(dataset, split_setting)] * params['split_repeat']
 
         return dataset, splits
 
     elif name in ['collab', 'imdb-b', 'imdb-m', 'reddit-b', 'reddit-m5k', 'reddit-m12k']:
-        assert split_setting == 'public'
         name_map = {'collab': 'COLLAB', 'imdb-b': 'IMDB-BINARY', 'imdb-m': 'IMDB-MULTI', 'reddit-b': 'REDDIT-BINARY',
                     'reddit-m5k': 'REDDIT-MULTI-5K', 'reddit-m12k': 'REDDIT-MULTI-12K'}
         name = name_map[name]
@@ -733,7 +749,7 @@ def load_graph_task(params):
         num_feat = dataset.x.max().item() + 1
         dataset._data.x_feat = F.one_hot(torch.arange(num_feat), num_classes=num_feat).float()
 
-        splits = [get_graph_split(dataset)] * params['split_repeat']
+        splits = [get_graph_split(dataset, split_setting)] * params['split_repeat']
 
         return dataset, splits
 
