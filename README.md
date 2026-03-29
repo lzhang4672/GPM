@@ -116,6 +116,19 @@ Supported domain pairs:
 
 ## 📊 GPM baseline coverage on 6 graph-classification datasets
 
+### Slurm helper (single command)
+
+If you want a single script that stages code and auto-recovers common torch/PyG binary mismatches,
+use the provided job wrapper:
+
+```bash
+sbatch run_job.sh ba2motifs 5 1000
+```
+
+It will preflight torch with `scripts/diagnose_torch_segfault.py`, attempt one in-place repair if needed,
+and then launch training.
+
+
 To reproduce the reviewer-requested baseline protocol (8:2 train/test split, 5 seeds) for:
 `Ba2Motifs`, `BAMultiShapes`, `Mutagenicity`, `BBBP`, `NCI1`, `PROTEINS`,
 use:
