@@ -8,6 +8,9 @@ def get_args():
     parser.add_argument("--use_params", action="store_true")
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--group', type=str, default='default')
+    parser.add_argument('--data_path', type=str, default=None)
+    parser.add_argument('--pattern_path', type=str, default=None)
+    parser.add_argument('--save_path', type=str, default=None)
 
     # Dataset
     parser.add_argument('--dataset', '--data', type=str, default="cora")
@@ -90,6 +93,9 @@ def get_da_args():
     parser.add_argument("--use_params", action="store_true")
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--group', type=str, default='default')
+    parser.add_argument('--data_path', type=str, default=None)
+    parser.add_argument('--pattern_path', type=str, default=None)
+    parser.add_argument('--save_path', type=str, default=None)
 
     # Dataset
     # parser.add_argument('--dataset', '--data', type=str, default="cora")

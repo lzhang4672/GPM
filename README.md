@@ -114,6 +114,45 @@ Supported domain pairs:
 - `acm -> dblp`, `dblp -> acm`
 - `DE -> {EN, ES, FR, PT, RU}`
 
+## 📊 GPM baseline coverage on 6 graph-classification datasets
+
+To reproduce the reviewer-requested baseline protocol (8:2 train/test split, 5 seeds) for:
+`Ba2Motifs`, `BAMultiShapes`, `Mutagenicity`, `BBBP`, `NCI1`, `PROTEINS`,
+use:
+
+```bash
+python experiments/run_gpm_baseline.py --seeds 5 --gpu 0
+```
+
+This runner:
+- uses `--split train80_test20`
+- runs each dataset with `--split_repeat {3|5}`
+- captures final `mean ± std` test metric and per-seed training time
+- writes results to:
+  - `artifacts/gpm_baseline_results.csv`
+  - `artifacts/gpm_baseline_results.json`
+
+If you prefer a quick check before full runs:
+
+```bash
+python experiments/run_gpm_baseline.py --seeds 3 --epochs 100
+```
+
+For cluster environments where compute jobs cannot access the internet, pre-cache datasets to a shared path first:
+
+```bash
+python scripts/precache_datasets.py \
+  --data_path /shared/gpm_data \
+  --pattern_path /shared/gpm_patterns
+```
+
+Then point training jobs to those persistent paths:
+
+```bash
+python GPM/main.py --dataset nci1 --split train80_test20 --split_repeat 5 \
+  --data_path /shared/gpm_data --pattern_path /shared/gpm_patterns
+```
+
 ## 📂 Repository Structure
 ```
 └── GPM

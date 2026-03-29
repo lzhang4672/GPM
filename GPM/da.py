@@ -213,8 +213,12 @@ def main():
     set_memory_limit()  # 90% by default
     params = get_da_args()
 
-    params['data_path'] = osp.join(osp.dirname(__file__), '..', 'data')
-    params['pattern_path'] = osp.join(osp.dirname(__file__), '..', 'patterns')
+    if params['data_path'] is None:
+        params['data_path'] = osp.join(osp.dirname(__file__), '..', 'data')
+    if params['pattern_path'] is None:
+        params['pattern_path'] = osp.join(osp.dirname(__file__), '..', 'patterns')
+    if params['save_path'] is None:
+        params['save_path'] = osp.join(osp.dirname(__file__), '..', 'model')
 
     data_config = osp.join(osp.dirname(__file__), '..', 'config', 'data.yaml')
     with open(data_config, 'r') as f:
