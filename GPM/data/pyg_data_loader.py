@@ -5,11 +5,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from ogb.linkproppred import PygLinkPropPredDataset
-from ogb.nodeproppred import PygNodePropPredDataset
-from ogb.graphproppred import PygGraphPropPredDataset
-from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
-
 from torch_geometric.data import Data
 from torch_geometric.datasets import Planetoid, CoraFull, Amazon, Coauthor, WikiCS, Flickr, Yelp, Reddit2, WebKB, \
     WikipediaNetwork, HeterophilousGraphDataset, Actor, LRGBDataset, GNNBenchmarkDataset, TUDataset, DeezerEurope, \
@@ -268,6 +263,8 @@ def load_node_task(params):
         splits = [{'train': train_mask, 'val': val_mask, 'test': test_mask}] * repeat
 
     elif name in ['arxiv', 'products']:
+        from ogb.nodeproppred import PygNodePropPredDataset
+
         if params['node_pe'] == 'rw':
             transform = T.Compose([T.RemoveSelfLoops(), T.ToUndirected(),
                                    T.AddRandomWalkPE(params['node_pe_dim'], 'pe')])
@@ -295,6 +292,8 @@ def load_node_task(params):
         return graph, splits
 
     elif name in ['proteins']:
+        from ogb.nodeproppred import PygNodePropPredDataset
+
         if params['node_pe'] == 'rw':
             transform = T.Compose([T.RemoveSelfLoops(), T.ToUndirected(),
                                    T.AddRandomWalkPE(params['node_pe_dim'], 'pe')])
@@ -527,6 +526,7 @@ def load_link_task(params):
         return {'train': train_set, 'val': val_set, 'test': test_set}, None
 
     elif name in ['link-collab', 'link-ppa', 'link-ddi']:
+        from ogb.linkproppred import PygLinkPropPredDataset
 
         if params['node_pe'] == 'rw':
             transform = T.Compose([T.RemoveSelfLoops(), T.AddRandomWalkPE(params['node_pe_dim'], 'pe')])
@@ -640,6 +640,8 @@ def load_graph_task(params):
     # OGB Molecule datasets
     elif name in ['esol', 'freesolv', 'lipo', 'muv', 'bace', 'bbbp', 'tox21', 'toxcast', 'sider', 'clintox', 'hiv',
                   'pcba']:
+        from ogb.graphproppred import PygGraphPropPredDataset
+
         name_map = {'esol': 'ogbg-molesol', 'freesolv': 'ogbg-molfreesolv', 'lipo': 'ogbg-mollipo',
                     'muv': 'ogbg-molmuv', 'pcba': 'ogbg-molpcba', 'bace': 'ogbg-molbace', 'bbbp': 'ogbg-molbbbp',
                     'tox21': 'ogbg-moltox21', 'toxcast': 'ogbg-moltoxcast', 'sider': 'ogbg-molsider',
@@ -755,6 +757,8 @@ def load_graph_task(params):
         return dataset, splits
 
     elif name in ['ppa', 'code2']:
+        from ogb.graphproppred import PygGraphPropPredDataset
+
         name_map = {'ppa': 'ogbg-ppa', 'code2': 'ogbg-code2'}
         name = name_map[name]
 
