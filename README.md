@@ -153,6 +153,18 @@ python GPM/main.py --dataset nci1 --split train80_test20 --split_repeat 5 \
   --data_path /shared/gpm_data --pattern_path /shared/gpm_patterns
 ```
 
+If you hit missing module errors on cluster, validate runtime dependencies first:
+
+```bash
+python scripts/check_runtime_deps.py
+```
+
+A dependency list is also provided at:
+
+```bash
+requirements/runtime.txt
+```
+
 ## 📂 Repository Structure
 ```
 └── GPM

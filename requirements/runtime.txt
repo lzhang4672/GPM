@@ -1,0 +1,28 @@
+# Core
+pyyaml
+numpy
+pandas
+scipy
+scikit-learn
+networkx
+fsspec
+tqdm
+psutil
+einops
+
+# Tracking / metrics
+wandb
+torchmetrics
+ogb
+
+# PyTorch / PyG stack (install versions compatible with your CUDA/PyTorch build)
+torch
+torch-geometric
+pyg_lib
+torch_scatter
+torch_sparse
+torch_cluster
+torch_spline_conv
+
+# Optional dataset helper (needed for pokec and related downloader code paths)
+googledrivedownloader
