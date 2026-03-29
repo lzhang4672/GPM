@@ -20,15 +20,21 @@ module --force purge || true
 module load StdEnv/2023
 module load gcc/12.3
 
-# -------- fix libze_loader for torch --------
-ZE_LIB_DIR="/cvmfs/soft.computecanada.ca/gentoo/2023/x86-64-v3/usr/lib64"
-export LD_LIBRARY_PATH="$ZE_LIB_DIR:${LD_LIBRARY_PATH:-}"
+# -------- optional libze_loader for torch --------
+# Disabled by default; enabling globally can break some Python envs on some clusters.
+if [[ "${USE_ZE_LIB:-0}" == "1" ]]; then
+  ZE_LIB_DIR="/cvmfs/soft.computecanada.ca/gentoo/2023/x86-64-v3/usr/lib64"
+  if [[ -d "$ZE_LIB_DIR" ]]; then
+    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:$ZE_LIB_DIR"
+  fi
+fi
 
-# -------- env python (prebuilt) --------
+# -------- env python --------
 PY_EXEC="$HOME/apps/miniforge3/envs/clean_env/bin/python"
+BASE_PY="$HOME/apps/miniforge3/bin/python"
+
 if [[ ! -x "$PY_EXEC" ]]; then
-  echo "CRITICAL: python not found at $PY_EXEC"
-  exit 1
+  echo "WARN: prebuilt env python not found at $PY_EXEC"
 fi
 
 # prevent leaking base/user packages
@@ -64,20 +70,46 @@ copy_back() {
 }
 trap copy_back EXIT
 
-# -------- robust torch check + optional auto-fix --------
+ensure_fresh_env() {
+  local target_env="$1"
+  if [[ ! -x "$BASE_PY" ]]; then
+    echo "CRITICAL: base python not found at $BASE_PY"
+    exit 2
+  fi
+
+  echo "[env] creating fresh venv at $target_env"
+  "$BASE_PY" -m venv "$target_env"
+  local py="$target_env/bin/python"
+
+  "$py" -m pip install --upgrade pip setuptools wheel
+  "$py" -m pip install --no-cache-dir -r requirements/runtime.txt
+  "$py" -m pip install --no-cache-dir torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121
+  "$py" -m pip install --no-cache-dir torch-geometric==2.6.1
+  "$py" -m pip install --no-cache-dir pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.4.0+cu121.html
+
+  PY_EXEC="$py"
+}
+
+# If the configured Python itself is unstable, switch to a fresh per-job env.
+if [[ ! -x "$PY_EXEC" ]] || ! "$PY_EXEC" - <<'PY' >/dev/null 2>&1
+import sys
+print(sys.executable)
+PY
+then
+  echo "[preflight] configured env python is unavailable/unstable; using fresh job-local env"
+  ensure_fresh_env "$WORK_DIR/.gpm_env"
+fi
+
+# -------- robust torch check + auto-repair --------
 echo "[preflight] probing torch/numpy runtime"
 if ! "$PY_EXEC" scripts/diagnose_torch_segfault.py; then
-  echo "[preflight] torch probe failed. Attempting one-shot environment repair in-place..."
-  "$PY_EXEC" -m pip uninstall -y torch torchvision torchaudio torch-geometric pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv numpy || true
-  "$PY_EXEC" -m pip install --no-cache-dir "numpy<2"
-  "$PY_EXEC" -m pip install --no-cache-dir torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121
-  "$PY_EXEC" -m pip install --no-cache-dir torch-geometric==2.6.1
-  "$PY_EXEC" -m pip install --no-cache-dir pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.4.0+cu121.html
+  echo "[preflight] torch probe failed. Rebuilding fresh job-local env and retrying..."
+  ensure_fresh_env "$WORK_DIR/.gpm_env"
   echo "[preflight] re-probing torch/numpy runtime"
   "$PY_EXEC" scripts/diagnose_torch_segfault.py
 fi
 
-# dependency preflight (no heavy installs)
+# dependency preflight (lightweight)
 "$PY_EXEC" scripts/check_runtime_deps.py --core-only || true
 
 LOG_FILE="logs/${DATASET}_${JOBID}.log"
@@ -96,7 +128,6 @@ echo "Starting dataset=$DATASET seeds=$SEEDS epochs=$EPOCHS"
   --pattern_path "$PATTERN_PATH" \
   --save_path "$SAVE_PATH" | tee "$LOG_FILE"
 
-# parse summary lines printed by main.py
 TEST_LINE=$(grep -E "^Test " "$LOG_FILE" | tail -1 || true)
 TIME_LINE=$(grep -E "^Training time per seed \(s\):" "$LOG_FILE" | tail -1 || true)
 

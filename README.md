@@ -125,8 +125,10 @@ use the provided job wrapper:
 sbatch run_job.sh ba2motifs 5 1000
 ```
 
-It will preflight torch with `scripts/diagnose_torch_segfault.py`, attempt one in-place repair if needed,
-and then launch training.
+It will preflight torch with `scripts/diagnose_torch_segfault.py`; if the configured env is broken,
+it automatically creates a fresh job-local venv and installs a pinned torch/PyG stack before launching training.
+
+If your cluster requires `libze_loader`, set `USE_ZE_LIB=1` when submitting (default is off to avoid breaking Python startup on some nodes).
 
 
 To reproduce the reviewer-requested baseline protocol (8:2 train/test split, 5 seeds) for:
