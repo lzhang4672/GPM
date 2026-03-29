@@ -157,6 +157,7 @@ If you hit dependency issues on a cluster, validate runtime dependencies first:
 
 ```bash
 python scripts/check_runtime_deps.py
+python scripts/diagnose_torch_segfault.py
 ```
 
 If this reports a **CRASH** for `torch` or PyG modules, your environment likely has a binary mismatch
@@ -166,6 +167,19 @@ If this reports a **CRASH** for `torch` or PyG modules, your environment likely 
 2. Install **torch** with the wheel/channel matching your cluster CUDA driver/runtime.
 3. Install matching PyG wheels (`pyg_lib`, `torch_scatter`, `torch_sparse`, `torch_cluster`, `torch_spline_conv`).
 4. Re-run `python scripts/check_runtime_deps.py`.
+
+
+If `diagnose_torch_segfault.py` reports a crash/signal, do a clean reinstall of a **matching** torch/PyG stack
+(example for CUDA 12.1):
+
+```bash
+python -m pip uninstall -y torch torchvision torchaudio torch-geometric pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv numpy
+python -m pip install --no-cache-dir "numpy<2"
+python -m pip install --no-cache-dir torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121
+python -m pip install --no-cache-dir torch-geometric==2.6.1
+python -m pip install --no-cache-dir pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.4.0+cu121.html
+python scripts/diagnose_torch_segfault.py
+```
 
 `requirements/runtime.txt` intentionally includes only lightweight packages and excludes torch/PyG binaries:
 

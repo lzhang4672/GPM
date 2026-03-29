@@ -5,7 +5,7 @@
 # - Install torch and PyG wheels separately so CUDA/ABI versions match your environment.
 
 pyyaml
-numpy
+numpy<2
 pandas
 scipy
 scikit-learn
