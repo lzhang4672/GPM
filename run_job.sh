@@ -10,38 +10,22 @@
 
 set -euo pipefail
 
-# -------- args --------
 DATASET="${1:?dataset required (ba2motifs|bamultishapes|mutagenicity|bbbp|nci1|proteins_gc)}"
 SEEDS="${2:-5}"
 EPOCHS="${3:-1000}"
 
-# -------- modules --------
 module --force purge || true
 module load StdEnv/2023
 module load gcc/12.3
 
-# -------- optional libze_loader for torch --------
-# Disabled by default; enabling globally can break some Python envs on some clusters.
-if [[ "${USE_ZE_LIB:-0}" == "1" ]]; then
-  ZE_LIB_DIR="/cvmfs/soft.computecanada.ca/gentoo/2023/x86-64-v3/usr/lib64"
-  if [[ -d "$ZE_LIB_DIR" ]]; then
-    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:$ZE_LIB_DIR"
-  fi
-fi
+ZE_LIB_DIR="/cvmfs/soft.computecanada.ca/gentoo/2023/x86-64-v3/usr/lib64"
 
-# -------- env python --------
 PY_EXEC="$HOME/apps/miniforge3/envs/clean_env/bin/python"
 BASE_PY="$HOME/apps/miniforge3/bin/python"
 
-if [[ ! -x "$PY_EXEC" ]]; then
-  echo "WARN: prebuilt env python not found at $PY_EXEC"
-fi
-
-# prevent leaking base/user packages
 unset PYTHONPATH || true
 export PYTHONNOUSERSITE=1
 
-# -------- paths --------
 SOURCE_DIR="/home/lzhang46/projects/aip-six/lzhang46/GPM"
 JOBID="${SLURM_JOB_ID:-manual}"
 WORK_DIR="${SLURM_TMPDIR:-/tmp/$USER/$JOBID}/GPM"
@@ -52,7 +36,6 @@ SAVE_PATH="/home/lzhang46/projects/aip-six/lzhang46/GPM/shared/gpm_models"
 
 mkdir -p "$WORK_DIR" "$DATA_PATH" "$PATTERN_PATH" "$SAVE_PATH"
 
-# -------- stage code --------
 rsync -a --delete \
   --exclude '.git/' \
   --exclude '__pycache__/' \
@@ -81,16 +64,30 @@ ensure_fresh_env() {
   "$BASE_PY" -m venv "$target_env"
   local py="$target_env/bin/python"
 
+  export PIP_CONFIG_FILE=/dev/null
+
   "$py" -m pip install --upgrade pip setuptools wheel
-  "$py" -m pip install --no-cache-dir -r requirements/runtime.txt
-  "$py" -m pip install --no-cache-dir torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121
+  "$py" -m pip install --no-index --find-links /cvmfs/soft.computecanada.ca/custom/python/wheelhouse/gentoo2023/x86-64-v3 --find-links /cvmfs/soft.computecanada.ca/custom/python/wheelhouse/gentoo2023/generic --find-links /cvmfs/soft.computecanada.ca/custom/python/wheelhouse/generic -r requirements/runtime.txt
+
+  "$py" -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu121 torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0
   "$py" -m pip install --no-cache-dir torch-geometric==2.6.1
-  "$py" -m pip install --no-cache-dir pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.4.0+cu121.html
+
+  # CRITICAL: disable site pip config and indexes to avoid torch29 ComputeCanada wheels.
+  "$py" -m pip install --no-index --find-links https://data.pyg.org/whl/torch-2.4.0+cu121.html pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv
 
   PY_EXEC="$py"
 }
 
-# If the configured Python itself is unstable, switch to a fresh per-job env.
+run_probe() {
+  local out_file="$WORK_DIR/artifacts/torch_probe_${JOBID}.log"
+  set +e
+  "$PY_EXEC" scripts/diagnose_torch_segfault.py >"$out_file" 2>&1
+  local rc=$?
+  set -e
+  cat "$out_file"
+  return $rc
+}
+
 if [[ ! -x "$PY_EXEC" ]] || ! "$PY_EXEC" - <<'PY' >/dev/null 2>&1
 import sys
 print(sys.executable)
@@ -100,16 +97,22 @@ then
   ensure_fresh_env "$WORK_DIR/.gpm_env"
 fi
 
-# -------- robust torch check + auto-repair --------
 echo "[preflight] probing torch/numpy runtime"
-if ! "$PY_EXEC" scripts/diagnose_torch_segfault.py; then
-  echo "[preflight] torch probe failed. Rebuilding fresh job-local env and retrying..."
-  ensure_fresh_env "$WORK_DIR/.gpm_env"
-  echo "[preflight] re-probing torch/numpy runtime"
-  "$PY_EXEC" scripts/diagnose_torch_segfault.py
+if ! run_probe; then
+  if [[ -d "$ZE_LIB_DIR" ]] && grep -q "libze_loader.so.1" "$WORK_DIR/artifacts/torch_probe_${JOBID}.log"; then
+    echo "[preflight] missing libze_loader detected; enabling ZE runtime path and retrying probe"
+    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:$ZE_LIB_DIR"
+    run_probe || true
+  fi
 fi
 
-# dependency preflight (lightweight)
+if ! run_probe; then
+  echo "[preflight] torch probe still failed. Rebuilding fresh job-local env and retrying..."
+  ensure_fresh_env "$WORK_DIR/.gpm_env"
+  echo "[preflight] re-probing torch/numpy runtime"
+  run_probe
+fi
+
 "$PY_EXEC" scripts/check_runtime_deps.py --core-only || true
 
 LOG_FILE="logs/${DATASET}_${JOBID}.log"
