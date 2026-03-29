@@ -153,16 +153,24 @@ python GPM/main.py --dataset nci1 --split train80_test20 --split_repeat 5 \
   --data_path /shared/gpm_data --pattern_path /shared/gpm_patterns
 ```
 
-If you hit missing module errors on cluster, validate runtime dependencies first:
+If you hit dependency issues on a cluster, validate runtime dependencies first:
 
 ```bash
 python scripts/check_runtime_deps.py
 ```
 
-A dependency list is also provided at:
+If this reports a **CRASH** for `torch` or PyG modules, your environment likely has a binary mismatch
+(e.g., CUDA/runtime ABI mismatch). In that case:
+
+1. Recreate/clean the environment.
+2. Install **torch** with the wheel/channel matching your cluster CUDA driver/runtime.
+3. Install matching PyG wheels (`pyg_lib`, `torch_scatter`, `torch_sparse`, `torch_cluster`, `torch_spline_conv`).
+4. Re-run `python scripts/check_runtime_deps.py`.
+
+`requirements/runtime.txt` intentionally includes only lightweight packages and excludes torch/PyG binaries:
 
 ```bash
-requirements/runtime.txt
+python -m pip install -r requirements/runtime.txt
 ```
 
 ## 📂 Repository Structure
