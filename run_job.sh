@@ -19,9 +19,11 @@ module load StdEnv/2023
 module load gcc/12.3
 
 ZE_LIB_DIR="/cvmfs/soft.computecanada.ca/gentoo/2023/x86-64-v3/usr/lib64"
+ORIG_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
 
 PY_EXEC="$HOME/apps/miniforge3/envs/clean_env/bin/python"
-BASE_PY="$HOME/apps/miniforge3/bin/python"
+BASE_PY_DEFAULT="$HOME/apps/miniforge3/bin/python"
+BASE_PY=""
 
 unset PYTHONPATH || true
 export PYTHONNOUSERSITE=1
@@ -53,42 +55,71 @@ copy_back() {
 }
 trap copy_back EXIT
 
+pick_bootstrap_python() {
+  local candidates=("$BASE_PY_DEFAULT" "$(command -v python3 || true)" "/usr/bin/python3")
+  for p in "${candidates[@]}"; do
+    [[ -n "$p" && -x "$p" ]] || continue
+    if env -u LD_LIBRARY_PATH "$p" - <<'PY' >/dev/null 2>&1
+import sys
+print(sys.executable)
+PY
+    then
+      BASE_PY="$p"
+      return 0
+    fi
+  done
+  return 1
+}
+
 ensure_fresh_env() {
   local target_env="$1"
-  if [[ ! -x "$BASE_PY" ]]; then
-    echo "CRITICAL: base python not found at $BASE_PY"
+  if [[ -z "$BASE_PY" ]]; then
+    echo "CRITICAL: no stable bootstrap python found"
     exit 2
   fi
 
-  echo "[env] creating fresh venv at $target_env"
-  "$BASE_PY" -m venv "$target_env"
+  echo "[env] creating fresh venv at $target_env with $BASE_PY"
+  env -u LD_LIBRARY_PATH "$BASE_PY" -m venv "$target_env"
   local py="$target_env/bin/python"
 
   export PIP_CONFIG_FILE=/dev/null
 
-  "$py" -m pip install --upgrade pip setuptools wheel
-  "$py" -m pip install --no-index --find-links /cvmfs/soft.computecanada.ca/custom/python/wheelhouse/gentoo2023/x86-64-v3 --find-links /cvmfs/soft.computecanada.ca/custom/python/wheelhouse/gentoo2023/generic --find-links /cvmfs/soft.computecanada.ca/custom/python/wheelhouse/generic -r requirements/runtime.txt
+  env -u LD_LIBRARY_PATH "$py" -m pip install --upgrade pip setuptools wheel
+  env -u LD_LIBRARY_PATH "$py" -m pip install --no-index \
+    --find-links /cvmfs/soft.computecanada.ca/custom/python/wheelhouse/gentoo2023/x86-64-v3 \
+    --find-links /cvmfs/soft.computecanada.ca/custom/python/wheelhouse/gentoo2023/generic \
+    --find-links /cvmfs/soft.computecanada.ca/custom/python/wheelhouse/generic \
+    -r requirements/runtime.txt
 
-  "$py" -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu121 torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0
-  "$py" -m pip install --no-cache-dir torch-geometric==2.6.1
-
-  # CRITICAL: disable site pip config and indexes to avoid torch29 ComputeCanada wheels.
-  "$py" -m pip install --no-index --find-links https://data.pyg.org/whl/torch-2.4.0+cu121.html pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv
+  env -u LD_LIBRARY_PATH "$py" -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu121 torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0
+  env -u LD_LIBRARY_PATH "$py" -m pip install --no-cache-dir torch-geometric==2.6.1
+  env -u LD_LIBRARY_PATH "$py" -m pip install --no-index --find-links https://data.pyg.org/whl/torch-2.4.0+cu121.html pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv
 
   PY_EXEC="$py"
 }
 
 run_probe() {
   local out_file="$WORK_DIR/artifacts/torch_probe_${JOBID}.log"
+  local use_ze="${1:-0}"
+  local ld="$ORIG_LD_LIBRARY_PATH"
+  if [[ "$use_ze" == "1" && -d "$ZE_LIB_DIR" ]]; then
+    ld="${ld}:$ZE_LIB_DIR"
+  fi
+
   set +e
-  "$PY_EXEC" scripts/diagnose_torch_segfault.py >"$out_file" 2>&1
+  env LD_LIBRARY_PATH="$ld" "$PY_EXEC" scripts/diagnose_torch_segfault.py >"$out_file" 2>&1
   local rc=$?
   set -e
   cat "$out_file"
   return $rc
 }
 
-if [[ ! -x "$PY_EXEC" ]] || ! "$PY_EXEC" - <<'PY' >/dev/null 2>&1
+if ! pick_bootstrap_python; then
+  echo "CRITICAL: unable to find any working bootstrap python (tried miniforge + system python3)."
+  exit 3
+fi
+
+if [[ ! -x "$PY_EXEC" ]] || ! env -u LD_LIBRARY_PATH "$PY_EXEC" - <<'PY' >/dev/null 2>&1
 import sys
 print(sys.executable)
 PY
@@ -98,29 +129,28 @@ then
 fi
 
 echo "[preflight] probing torch/numpy runtime"
-if ! run_probe; then
-  if [[ -d "$ZE_LIB_DIR" ]] && grep -q "libze_loader.so.1" "$WORK_DIR/artifacts/torch_probe_${JOBID}.log"; then
-    echo "[preflight] missing libze_loader detected; enabling ZE runtime path and retrying probe"
-    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:$ZE_LIB_DIR"
-    run_probe || true
+if ! run_probe 0; then
+  if grep -q "libze_loader.so.1" "$WORK_DIR/artifacts/torch_probe_${JOBID}.log"; then
+    echo "[preflight] missing libze_loader detected; retrying probe with ZE runtime path"
+    run_probe 1 || true
   fi
 fi
 
-if ! run_probe; then
+if ! run_probe 0 && ! run_probe 1; then
   echo "[preflight] torch probe still failed. Rebuilding fresh job-local env and retrying..."
   ensure_fresh_env "$WORK_DIR/.gpm_env"
   echo "[preflight] re-probing torch/numpy runtime"
-  run_probe
+  run_probe 0 || run_probe 1
 fi
 
-"$PY_EXEC" scripts/check_runtime_deps.py --core-only || true
+env -u LD_LIBRARY_PATH "$PY_EXEC" scripts/check_runtime_deps.py --core-only || true
 
 LOG_FILE="logs/${DATASET}_${JOBID}.log"
 CSV_FILE="artifacts/gpm_results_${JOBID}.csv"
 
 echo "Starting dataset=$DATASET seeds=$SEEDS epochs=$EPOCHS"
 
-"$PY_EXEC" -u GPM/main.py \
+env LD_LIBRARY_PATH="${ORIG_LD_LIBRARY_PATH}:${ZE_LIB_DIR}" "$PY_EXEC" -u GPM/main.py \
   --dataset "$DATASET" \
   --split train80_test20 \
   --split_repeat "$SEEDS" \

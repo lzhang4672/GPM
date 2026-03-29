@@ -125,8 +125,8 @@ use the provided job wrapper:
 sbatch run_job.sh ba2motifs 5 1000
 ```
 
-It will preflight torch with `scripts/diagnose_torch_segfault.py`; if `libze_loader.so.1` is missing it auto-adds the ComputeCanada ZE runtime path and retries.
-If the env is still broken, it creates a fresh job-local venv and installs a pinned torch/PyG stack before launching training.
+It preflights torch both with and without ZE runtime path and auto-detects `libze_loader.so.1` errors.
+If the configured env is broken, it creates a fresh job-local venv using a stable bootstrap python (miniforge or system `python3`) and installs a pinned torch/PyG stack before launching training.
 
 The installer ignores site-level pip config for the PyG extension step to avoid accidentally pulling incompatible `torch29` wheels from cluster wheelhouses.
 
