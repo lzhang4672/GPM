@@ -682,8 +682,26 @@ def load_graph_task(params):
             splits = [get_graph_split(dataset, split_setting)] * params['split_repeat']
             return dataset, splits
 
-    elif name in ['mutag', 'mutagenicity', 'nci1', 'dd', 'proteins', 'proteins_gc', 'enzymes', 'ba2motifs',
-                  'bamultishapes']:
+    elif name in ['ba2motifs', 'bamultishapes']:
+        from torch_geometric.datasets import BA2MotifDataset, BAMultiShapesDataset
+
+        if name == 'ba2motifs':
+            dataset = BA2MotifDataset(root=data_path, transform=transform)
+        else:
+            dataset = BAMultiShapesDataset(root=data_path, transform=transform)
+
+        if dataset._data.x is None:
+            dataset._data.x = torch.ones((dataset._data.y.size(0), 1), dtype=torch.float)
+        dataset._data.x_feat = dataset._data.x.float()
+
+        if dataset._data.edge_attr is not None:
+            dataset._data.e_feat = dataset._data.edge_attr.float()
+
+        splits = [get_graph_split(dataset, split_setting)] * params['split_repeat']
+
+        return dataset, splits
+
+    elif name in ['mutag', 'mutagenicity', 'nci1', 'dd', 'proteins', 'proteins_gc', 'enzymes']:
 
         name_map = {
             'mutag': 'MUTAG',
@@ -693,8 +711,6 @@ def load_graph_task(params):
             'proteins': 'PROTEINS',
             'proteins_gc': 'PROTEINS',
             'enzymes': 'ENZYMES',
-            'ba2motifs': 'BA2Motifs',
-            'bamultishapes': 'BAMultiShapes',
         }
         name = name_map[name]
 
