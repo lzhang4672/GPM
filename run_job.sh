@@ -73,10 +73,7 @@ PY
 
 ensure_fresh_env() {
   local target_env="$1"
-  if [[ -z "$BASE_PY" ]]; then
-    echo "CRITICAL: no stable bootstrap python found"
-    exit 2
-  fi
+  [[ -n "$BASE_PY" ]] || { echo "CRITICAL: no stable bootstrap python found"; exit 2; }
 
   echo "[env] creating fresh venv at $target_env with $BASE_PY"
   env -u LD_LIBRARY_PATH "$BASE_PY" -m venv "$target_env"
@@ -85,11 +82,16 @@ ensure_fresh_env() {
   export PIP_CONFIG_FILE=/dev/null
 
   env -u LD_LIBRARY_PATH "$py" -m pip install --upgrade pip setuptools wheel
+
+  # Core deps from local wheelhouse; no internet dependency.
   env -u LD_LIBRARY_PATH "$py" -m pip install --no-index \
     --find-links /cvmfs/soft.computecanada.ca/custom/python/wheelhouse/gentoo2023/x86-64-v3 \
     --find-links /cvmfs/soft.computecanada.ca/custom/python/wheelhouse/gentoo2023/generic \
     --find-links /cvmfs/soft.computecanada.ca/custom/python/wheelhouse/generic \
-    -r requirements/runtime.txt
+    pyyaml "numpy<2" pandas scipy scikit-learn networkx fsspec tqdm psutil einops
+
+  # Optional deps should not block job bootstrap.
+  env -u LD_LIBRARY_PATH "$py" -m pip install --no-cache-dir wandb torchmetrics ogb googledrivedownloader || true
 
   env -u LD_LIBRARY_PATH "$py" -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu121 torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0
   env -u LD_LIBRARY_PATH "$py" -m pip install --no-cache-dir torch-geometric==2.6.1
@@ -102,9 +104,7 @@ run_probe() {
   local out_file="$WORK_DIR/artifacts/torch_probe_${JOBID}.log"
   local use_ze="${1:-0}"
   local ld="$ORIG_LD_LIBRARY_PATH"
-  if [[ "$use_ze" == "1" && -d "$ZE_LIB_DIR" ]]; then
-    ld="${ld}:$ZE_LIB_DIR"
-  fi
+  [[ "$use_ze" == "1" && -d "$ZE_LIB_DIR" ]] && ld="${ld}:$ZE_LIB_DIR"
 
   set +e
   env LD_LIBRARY_PATH="$ld" "$PY_EXEC" scripts/diagnose_torch_segfault.py >"$out_file" 2>&1
@@ -114,10 +114,7 @@ run_probe() {
   return $rc
 }
 
-if ! pick_bootstrap_python; then
-  echo "CRITICAL: unable to find any working bootstrap python (tried miniforge + system python3)."
-  exit 3
-fi
+pick_bootstrap_python || { echo "CRITICAL: no working bootstrap python found."; exit 3; }
 
 if [[ ! -x "$PY_EXEC" ]] || ! env -u LD_LIBRARY_PATH "$PY_EXEC" - <<'PY' >/dev/null 2>&1
 import sys
@@ -129,14 +126,15 @@ then
 fi
 
 echo "[preflight] probing torch/numpy runtime"
-if ! run_probe 0; then
-  if grep -q "libze_loader.so.1" "$WORK_DIR/artifacts/torch_probe_${JOBID}.log"; then
-    echo "[preflight] missing libze_loader detected; retrying probe with ZE runtime path"
-    run_probe 1 || true
-  fi
+probe_ok=0
+if run_probe 0; then
+  probe_ok=1
+elif grep -q "libze_loader.so.1" "$WORK_DIR/artifacts/torch_probe_${JOBID}.log"; then
+  echo "[preflight] missing libze_loader detected; retrying probe with ZE runtime path"
+  run_probe 1 && probe_ok=1 || true
 fi
 
-if ! run_probe 0 && ! run_probe 1; then
+if [[ "$probe_ok" -ne 1 ]]; then
   echo "[preflight] torch probe still failed. Rebuilding fresh job-local env and retrying..."
   ensure_fresh_env "$WORK_DIR/.gpm_env"
   echo "[preflight] re-probing torch/numpy runtime"
@@ -163,7 +161,6 @@ env LD_LIBRARY_PATH="${ORIG_LD_LIBRARY_PATH}:${ZE_LIB_DIR}" "$PY_EXEC" -u GPM/ma
 
 TEST_LINE=$(grep -E "^Test " "$LOG_FILE" | tail -1 || true)
 TIME_LINE=$(grep -E "^Training time per seed \(s\):" "$LOG_FILE" | tail -1 || true)
-
 METRIC=$(echo "$TEST_LINE" | sed -E 's/^Test ([^:]+):.*/\1/')
 TEST_MEAN=$(echo "$TEST_LINE" | sed -E 's/^Test [^:]+: ([0-9.]+) ± ([0-9.]+).*/\1/')
 TEST_STD=$(echo "$TEST_LINE" | sed -E 's/^Test [^:]+: ([0-9.]+) ± ([0-9.]+).*/\2/')

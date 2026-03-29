@@ -128,7 +128,7 @@ sbatch run_job.sh ba2motifs 5 1000
 It preflights torch both with and without ZE runtime path and auto-detects `libze_loader.so.1` errors.
 If the configured env is broken, it creates a fresh job-local venv using a stable bootstrap python (miniforge or system `python3`) and installs a pinned torch/PyG stack before launching training.
 
-The installer ignores site-level pip config for the PyG extension step to avoid accidentally pulling incompatible `torch29` wheels from cluster wheelhouses.
+The installer ignores site-level pip config for the PyG extension step to avoid accidentally pulling incompatible `torch29` wheels from cluster wheelhouses. Optional packages (`ogb`, `wandb`, etc.) are installed best-effort so missing mirror entries do not abort the job bootstrap.
 
 
 To reproduce the reviewer-requested baseline protocol (8:2 train/test split, 5 seeds) for:
