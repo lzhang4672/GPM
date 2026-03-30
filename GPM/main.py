@@ -5,6 +5,7 @@ import os.path as osp
 import gc
 import numpy as np
 import torch
+import torch_scatter
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -113,7 +114,6 @@ def run(params):
 
     training_time = []
     inference_time = []
-    per_seed_training_time = []
 
     logger = Logger()
     if splits is None:
@@ -121,21 +121,6 @@ def run(params):
 
     for idx, split in enumerate(splits):
         seed_everything(idx)
-        seed_training_time = 0.0
-
-        if isinstance(split, dict):
-            val_split = split.get('val', None)
-            if val_split is not None:
-                if isinstance(val_split, torch.Tensor):
-                    has_val = val_split.numel() > 0 and val_split.sum().item() > 0
-                elif isinstance(val_split, dict) and 'edge' in val_split:
-                    has_val = val_split['edge'].size(0) > 0
-                else:
-                    has_val = True
-            else:
-                has_val = False
-        else:
-            has_val = True
 
         model = Model(params=params).to(device)
         if params['pretrain_data'] != 'none':
@@ -145,7 +130,7 @@ def run(params):
             model.linear_probe()
 
         num_params = to_millions(get_num_params(model))
-        stopper = EarlyStopping(patience=params["early_stop"] if has_val else 0)
+        stopper = EarlyStopping(patience=params["early_stop"])
 
         if idx == 0:
             print(f'The number of parameters: {num_params}M')
@@ -161,13 +146,10 @@ def run(params):
             loss = train(graph, model, optimizer, split=split, scheduler=scheduler, params=params)
             end_time = time.time()
             training_time.append(end_time - start_time)
-            seed_training_time += end_time - start_time
 
             if epoch % params['eval_every'] == 0 and params['split'] != 'pretrain':
                 start_time = time.time()
                 result = eval(graph, model, split=split, params=params)
-                if not has_val:
-                    result['val'] = result['test']
                 end_time = time.time()
                 inference_time.append(end_time - start_time)
 
@@ -204,7 +186,6 @@ def run(params):
             "best values/val": single_best["val"],
             "best values/test": single_best["test"],
         })
-        per_seed_training_time.append(seed_training_time)
 
         # After training
         del model, optimizer, scheduler
@@ -232,9 +213,6 @@ def run(params):
         "time/inference_std": np.std(inference_time),
         "time/inference": "{:.2f} ± {:.2f}".format(np.mean(inference_time), np.std(inference_time))
     })
-    print(f"Seeds: {len(per_seed_training_time)}")
-    print(f"Test {params['metric']}: {best['test']['mean']:.2f} ± {best['test']['std']:.2f}")
-    print(f"Training time per seed (s): {np.mean(per_seed_training_time):.2f} ± {np.std(per_seed_training_time):.2f}")
     wandb.finish()
 
     # Clear everything
@@ -247,12 +225,9 @@ def main():
     set_memory_limit()  # 90% by default
     params = get_args()
 
-    if params['data_path'] is None:
-        params['data_path'] = osp.join(osp.dirname(__file__), '..', 'data')
-    if params['pattern_path'] is None:
-        params['pattern_path'] = osp.join(osp.dirname(__file__), '..', 'patterns')
-    if params['save_path'] is None:
-        params['save_path'] = osp.join(osp.dirname(__file__), '..', 'model')
+    params['data_path'] = osp.join(osp.dirname(__file__), '..', 'data')
+    params['pattern_path'] = osp.join(osp.dirname(__file__), '..', 'patterns')
+    params['save_path'] = osp.join(osp.dirname(__file__), '..', 'model')
 
     data_config = osp.join(osp.dirname(__file__), '..', 'config', 'data.yaml')
     with open(data_config, 'r') as f:

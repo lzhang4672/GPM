@@ -183,10 +183,6 @@ def eval_graph(graph, model, split=None, params=None):
                 graphs = mask2idx(split[key])
                 num_graphs = len(graphs)
 
-            if num_graphs == 0:
-                results[key] = float('nan')
-                continue
-
             y = dataset.y[graphs]
 
             num_batches = (num_graphs + bs - 1) // bs

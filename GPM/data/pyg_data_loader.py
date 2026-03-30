@@ -5,11 +5,17 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from ogb.linkproppred import PygLinkPropPredDataset
+from ogb.nodeproppred import PygNodePropPredDataset
+from ogb.graphproppred import PygGraphPropPredDataset
+from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
+
 from torch_geometric.data import Data
 from torch_geometric.datasets import Planetoid, CoraFull, Amazon, Coauthor, WikiCS, Flickr, Yelp, Reddit2, WebKB, \
     WikipediaNetwork, HeterophilousGraphDataset, Actor, LRGBDataset, GNNBenchmarkDataset, TUDataset, DeezerEurope, \
     Twitch
 from .dataset.attributed_graph_dataset import AttributedGraphDataset
+from .dataset.heterophily_graph_dataset import load_pokec_mat
 from .dataset.transfer_learning_citation_dataset import CitationNetworkDataset
 from .dataset.zinc_dataset import ZINC
 
@@ -38,9 +44,6 @@ def get_split(graph, setting):
     elif setting == 'very_high':
         train_split = 0.8
         val_split = 0.1
-    elif setting == 'train80_test20':
-        train_split = 0.8
-        val_split = 0.0
     elif setting == 'pretrain':
         train_split = 1.0
         val_split = 0.0
@@ -94,15 +97,9 @@ def get_link_split(dataset):
     return splits
 
 
-def get_graph_split(dataset, setting='public'):
-    if setting == 'public':
-        train_split = 0.8
-        val_split = 0.1
-    elif setting == 'train80_test20':
-        train_split = 0.8
-        val_split = 0.0
-    else:
-        raise ValueError(f"Graph split setting error: {setting}")
+def get_graph_split(dataset):
+    train_split = 0.8
+    val_split = 0.1
 
     num_graphs = len(dataset)
     idx = torch.randperm(num_graphs)
@@ -263,8 +260,6 @@ def load_node_task(params):
         splits = [{'train': train_mask, 'val': val_mask, 'test': test_mask}] * repeat
 
     elif name in ['arxiv', 'products']:
-        from ogb.nodeproppred import PygNodePropPredDataset
-
         if params['node_pe'] == 'rw':
             transform = T.Compose([T.RemoveSelfLoops(), T.ToUndirected(),
                                    T.AddRandomWalkPE(params['node_pe_dim'], 'pe')])
@@ -292,8 +287,6 @@ def load_node_task(params):
         return graph, splits
 
     elif name in ['proteins']:
-        from ogb.nodeproppred import PygNodePropPredDataset
-
         if params['node_pe'] == 'rw':
             transform = T.Compose([T.RemoveSelfLoops(), T.ToUndirected(),
                                    T.AddRandomWalkPE(params['node_pe_dim'], 'pe')])
@@ -326,8 +319,6 @@ def load_node_task(params):
         return graph, splits
 
     elif name in ['pokec']:
-        from .dataset.heterophily_graph_dataset import load_pokec_mat
-
         if params['node_pe'] == 'rw':
             transform = T.Compose([T.RemoveSelfLoops(), T.ToUndirected(),
                                    T.AddRandomWalkPE(params['node_pe_dim'], 'pe')])
@@ -526,7 +517,6 @@ def load_link_task(params):
         return {'train': train_set, 'val': val_set, 'test': test_set}, None
 
     elif name in ['link-collab', 'link-ppa', 'link-ddi']:
-        from ogb.linkproppred import PygLinkPropPredDataset
 
         if params['node_pe'] == 'rw':
             transform = T.Compose([T.RemoveSelfLoops(), T.AddRandomWalkPE(params['node_pe_dim'], 'pe')])
@@ -584,6 +574,8 @@ def load_graph_task(params):
     data_path = params['data_path']
     split_setting = params['split']
 
+    assert split_setting == 'public'
+
     if params['node_pe'] == 'rw':
         transform = T.Compose([T.AddRandomWalkPE(params['node_pe_dim'], 'pe')])
     elif params['node_pe'] == 'lap':
@@ -640,8 +632,6 @@ def load_graph_task(params):
     # OGB Molecule datasets
     elif name in ['esol', 'freesolv', 'lipo', 'muv', 'bace', 'bbbp', 'tox21', 'toxcast', 'sider', 'clintox', 'hiv',
                   'pcba']:
-        from ogb.graphproppred import PygGraphPropPredDataset
-
         name_map = {'esol': 'ogbg-molesol', 'freesolv': 'ogbg-molfreesolv', 'lipo': 'ogbg-mollipo',
                     'muv': 'ogbg-molmuv', 'pcba': 'ogbg-molpcba', 'bace': 'ogbg-molbace', 'bbbp': 'ogbg-molbbbp',
                     'tox21': 'ogbg-moltox21', 'toxcast': 'ogbg-moltoxcast', 'sider': 'ogbg-molsider',
@@ -679,8 +669,9 @@ def load_graph_task(params):
             return {'train': train_set, 'val': val_set, 'test': test_set}, None
 
         else:
-            splits = [get_graph_split(dataset, split_setting)] * params['split_repeat']
+            splits = [get_graph_split(dataset)] * params['split_repeat']
             return dataset, splits
+
 
     elif name in ['ba2motifs', 'bamultishapes', 'ba_multi_shapes', 'ba-multishapes', 'BAMultiShapes']:
         from torch_geometric.datasets import BA2MotifDataset, BAMultiShapesDataset
@@ -691,8 +682,6 @@ def load_graph_task(params):
             try:
                 dataset = BAMultiShapesDataset(root=data_path, transform=transform)
             except FileNotFoundError as e:
-                # Fallback for older PyG versions that still point to the removed
-                # chrsmrrs graphkerneldatasets BAMultiShapes.zip URL.
                 if 'BAMultiShapes' not in str(e):
                     raise
 
@@ -748,21 +737,14 @@ def load_graph_task(params):
         if dataset._data.edge_attr is not None:
             dataset._data.e_feat = dataset._data.edge_attr.float()
 
-        splits = [get_graph_split(dataset, split_setting)] * params['split_repeat']
+        splits = [get_graph_split(dataset)] * params['split_repeat']
 
         return dataset, splits
 
-    elif name in ['mutag', 'mutagenicity', 'nci1', 'dd', 'proteins', 'proteins_gc', 'enzymes']:
+    elif name in ['mutag', 'nci1', 'dd', 'proteins', 'enzymes']:
+        assert split_setting == 'public'
 
-        name_map = {
-            'mutag': 'MUTAG',
-            'mutagenicity': 'Mutagenicity',
-            'nci1': 'NCI1',
-            'dd': 'DD',
-            'proteins': 'PROTEINS',
-            'proteins_gc': 'PROTEINS',
-            'enzymes': 'ENZYMES',
-        }
+        name_map = {'mutag': 'MUTAG', 'nci1': 'NCI1', 'dd': 'DD', 'proteins': 'PROTEINS', 'enzymes': 'ENZYMES'}
         name = name_map[name]
 
         dataset = TUDataset(root=data_path, name=name, use_node_attr=True, use_edge_attr=True, transform=transform)
@@ -781,11 +763,12 @@ def load_graph_task(params):
             dataset._data.e_feat = e_feat.float()
             dataset._data.edge_attr = edge_attr_idx
 
-        splits = [get_graph_split(dataset, split_setting)] * params['split_repeat']
+        splits = [get_graph_split(dataset)] * params['split_repeat']
 
         return dataset, splits
 
     elif name in ['collab', 'imdb-b', 'imdb-m', 'reddit-b', 'reddit-m5k', 'reddit-m12k']:
+        assert split_setting == 'public'
         name_map = {'collab': 'COLLAB', 'imdb-b': 'IMDB-BINARY', 'imdb-m': 'IMDB-MULTI', 'reddit-b': 'REDDIT-BINARY',
                     'reddit-m5k': 'REDDIT-MULTI-5K', 'reddit-m12k': 'REDDIT-MULTI-12K'}
         name = name_map[name]
@@ -819,13 +802,11 @@ def load_graph_task(params):
         num_feat = dataset.x.max().item() + 1
         dataset._data.x_feat = F.one_hot(torch.arange(num_feat), num_classes=num_feat).float()
 
-        splits = [get_graph_split(dataset, split_setting)] * params['split_repeat']
+        splits = [get_graph_split(dataset)] * params['split_repeat']
 
         return dataset, splits
 
     elif name in ['ppa', 'code2']:
-        from ogb.graphproppred import PygGraphPropPredDataset
-
         name_map = {'ppa': 'ogbg-ppa', 'code2': 'ogbg-code2'}
         name = name_map[name]
 

@@ -139,9 +139,6 @@ def eval_node(graph, model, split, params):
         for key in ['val', 'test']:
             mask = split[key]
             idx = mask2idx(mask)
-            if idx.numel() == 0:
-                results[key] = float('nan')
-                continue
             y = graph.y[idx].to(device)
             if y.ndim == 2:
                 y = y.squeeze()

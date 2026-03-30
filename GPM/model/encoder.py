@@ -2,8 +2,11 @@ import copy
 import os.path as osp
 import numpy as np
 import torch
+import torch_scatter
 import torch.nn as nn
 import torch.nn.functional as F
+
+from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 
 from data.pyg_data_loader import mol_graphs
 from utils.eval import *
@@ -22,7 +25,6 @@ class PatternEncoder(nn.Module):
 
         self.pre_projection = nn.Linear(self.input_dim, self.hidden_dim)
         if params['dataset'] in mol_graphs:
-            from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
             self.atom_encoder = AtomEncoder(emb_dim=16)
             self.bond_encoder = BondEncoder(emb_dim=16)
 

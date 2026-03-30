@@ -141,9 +141,6 @@ def eval_link(graph, model, split, params):
         for key in ['val', 'test']:
             pos_edge = split[key]['edge']
             neg_edge = split[key]['edge_neg']
-            if pos_edge.size(0) == 0 or neg_edge.size(0) == 0:
-                results[key] = float('nan')
-                continue
 
             num_pos_batches = (pos_edge.size(0) + bs - 1) // bs
             num_neg_batches = (neg_edge.size(0) + bs - 1) // bs
