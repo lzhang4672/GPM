@@ -1,7 +1,6 @@
 import numpy as np
 
 import torch
-from dgl.sampling import node2vec_random_walk
 from torch_cluster import random_walk
 
 from utils.eval import *

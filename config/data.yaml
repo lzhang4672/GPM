@@ -242,10 +242,19 @@ lipo:
 mutag:
   task: graph
   metric: acc
+mutagenicity:
+  task: graph
+  metric: acc
 dd:
   task: graph
   metric: acc
 nci1:
+  task: graph
+  metric: acc
+ba2motifs:
+  task: graph
+  metric: acc
+bamultishapes:
   task: graph
   metric: acc
 enzymes:
@@ -254,6 +263,9 @@ enzymes:
 #proteins:
 #  task: graph
 #  metric: acc
+proteins_gc:
+  task: graph
+  metric: acc
 collab:
   task: graph
   metric: acc

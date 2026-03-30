@@ -15,7 +15,6 @@ from torch_geometric.datasets import Planetoid, CoraFull, Amazon, Coauthor, Wiki
     WikipediaNetwork, HeterophilousGraphDataset, Actor, LRGBDataset, GNNBenchmarkDataset, TUDataset, DeezerEurope, \
     Twitch
 from .dataset.attributed_graph_dataset import AttributedGraphDataset
-from .dataset.heterophily_graph_dataset import load_pokec_mat
 from .dataset.transfer_learning_citation_dataset import CitationNetworkDataset
 from .dataset.zinc_dataset import ZINC
 
@@ -44,6 +43,9 @@ def get_split(graph, setting):
     elif setting == 'very_high':
         train_split = 0.8
         val_split = 0.1
+    elif setting == 'train80_test20':
+        train_split = 0.8
+        val_split = 0.0
     elif setting == 'pretrain':
         train_split = 1.0
         val_split = 0.0
@@ -325,6 +327,8 @@ def load_node_task(params):
         return graph, splits
 
     elif name in ['pokec']:
+        from .dataset.heterophily_graph_dataset import load_pokec_mat
+
         if params['node_pe'] == 'rw':
             transform = T.Compose([T.RemoveSelfLoops(), T.ToUndirected(),
                                    T.AddRandomWalkPE(params['node_pe_dim'], 'pe')])
@@ -791,7 +795,6 @@ def load_graph_task(params):
         return dataset, splits
 
     elif name in ['collab', 'imdb-b', 'imdb-m', 'reddit-b', 'reddit-m5k', 'reddit-m12k']:
-        assert split_setting == 'public'
         name_map = {'collab': 'COLLAB', 'imdb-b': 'IMDB-BINARY', 'imdb-m': 'IMDB-MULTI', 'reddit-b': 'REDDIT-BINARY',
                     'reddit-m5k': 'REDDIT-MULTI-5K', 'reddit-m12k': 'REDDIT-MULTI-12K'}
         name = name_map[name]
