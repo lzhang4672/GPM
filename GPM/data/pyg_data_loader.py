@@ -680,20 +680,79 @@ def load_graph_task(params):
             splits = [get_graph_split(dataset, split_setting)] * params['split_repeat']
             return dataset, splits
 
-    elif name in ['mutag', 'mutagenicity', 'nci1', 'dd', 'proteins', 'proteins_gc', 'enzymes', 'ba2motifs',
-                  'bamultishapes']:
 
-        name_map = {
-            'mutag': 'MUTAG',
-            'mutagenicity': 'Mutagenicity',
-            'nci1': 'NCI1',
-            'dd': 'DD',
-            'proteins': 'PROTEINS',
-            'proteins_gc': 'PROTEINS',
-            'enzymes': 'ENZYMES',
-            'ba2motifs': 'BA2Motif',
-            'bamultishapes': 'BAMultiShapes',
-        }
+    elif name in ['ba2motifs', 'bamultishapes', 'ba_multi_shapes', 'ba-multishapes', 'BAMultiShapes']:
+        from torch_geometric.datasets import BA2MotifDataset, BAMultiShapesDataset
+
+        if name == 'ba2motifs':
+            dataset = BA2MotifDataset(root=data_path, transform=transform)
+        else:
+            try:
+                dataset = BAMultiShapesDataset(root=data_path, transform=transform)
+            except FileNotFoundError as e:
+                if 'BAMultiShapes' not in str(e):
+                    raise
+
+                import pickle
+                from typing import List
+                from torch_geometric.data import InMemoryDataset, download_url
+
+                class BAMultiShapesDatasetFallback(InMemoryDataset):
+                    url = (
+                        'https://github.com/steveazzolin/gnn_logic_global_expl/raw/master/'
+                        'datasets/BAMultiShapes/BAMultiShapes.pkl'
+                    )
+
+                    def __init__(self, root, transform=None, pre_transform=None, pre_filter=None):
+                        super().__init__(root, transform, pre_transform, pre_filter)
+                        self.load(self.processed_paths[0])
+
+                    @property
+                    def raw_file_names(self):
+                        return 'BAMultiShapes.pkl'
+
+                    @property
+                    def processed_file_names(self):
+                        return 'data.pt'
+
+                    def download(self):
+                        download_url(self.url, self.raw_dir)
+
+                    def process(self):
+                        with open(self.raw_paths[0], 'rb') as f:
+                            adjs, xs, ys = pickle.load(f)
+
+                        data_list: List[Data] = []
+                        for adj, x, y in zip(adjs, xs, ys):
+                            edge_index = torch.from_numpy(adj).nonzero().t()
+                            x = torch.from_numpy(np.array(x)).to(torch.float)
+                            data = Data(x=x, edge_index=edge_index, y=y)
+
+                            if self.pre_filter is not None and not self.pre_filter(data):
+                                continue
+                            if self.pre_transform is not None:
+                                data = self.pre_transform(data)
+                            data_list.append(data)
+
+                        self.save(data_list, self.processed_paths[0])
+
+                dataset = BAMultiShapesDatasetFallback(root=data_path, transform=transform)
+
+        if dataset._data.x is None:
+            dataset._data.x = torch.ones((dataset._data.y.size(0), 1), dtype=torch.float)
+        dataset._data.x_feat = dataset._data.x.float()
+
+        if dataset._data.edge_attr is not None:
+            dataset._data.e_feat = dataset._data.edge_attr.float()
+
+        splits = [get_graph_split(dataset)] * params['split_repeat']
+
+        return dataset, splits
+
+    elif name in ['mutag', 'nci1', 'dd', 'proteins', 'enzymes']:
+        assert split_setting == 'public'
+
+        name_map = {'mutag': 'MUTAG', 'nci1': 'NCI1', 'dd': 'DD', 'proteins': 'PROTEINS', 'enzymes': 'ENZYMES'}
         name = name_map[name]
 
         dataset = TUDataset(root=data_path, name=name, use_node_attr=True, use_edge_attr=True, transform=transform)
