@@ -174,7 +174,7 @@ class PatternEncoder(nn.Module):
         h, n, k = patterns.shape
 
         # Flatten patterns and gather corresponding features
-        nids_flat = nids.view(-1)  # Shape: [h * n * k]
+        nids_flat = nids.view(-1).long()  # Shape: [h * n * k]
         feat_gathered = feat[nids_flat]  # Shape: [h * n * k, d]
         feat_gathered = feat_gathered.view(h * n, k, -1)  # Reshape to [h * n, k, d]
 
@@ -189,7 +189,7 @@ class PatternEncoder(nn.Module):
 
         if eids is not None:
             em, ed = e_feat.shape
-            eids_flat = eids.view(-1)
+            eids_flat = eids.view(-1).long()
             e_feat_gathered = e_feat[eids_flat]
             e_feat_gathered = e_feat_gathered.view(h * n, k - 1, ed)
             e_feat_gathered = torch.cat([torch.zeros(h * n, 1, ed, device=device), e_feat_gathered], dim=1)
