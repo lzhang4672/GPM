@@ -688,7 +688,58 @@ def load_graph_task(params):
         if name == 'ba2motifs':
             dataset = BA2MotifDataset(root=data_path, transform=transform)
         else:
-            dataset = BAMultiShapesDataset(root=data_path, transform=transform)
+            try:
+                dataset = BAMultiShapesDataset(root=data_path, transform=transform)
+            except FileNotFoundError as e:
+                # Fallback for older PyG versions that still point to the removed
+                # chrsmrrs graphkerneldatasets BAMultiShapes.zip URL.
+                if 'BAMultiShapes' not in str(e):
+                    raise
+
+                import pickle
+                from typing import List
+                from torch_geometric.data import InMemoryDataset, download_url
+
+                class BAMultiShapesDatasetFallback(InMemoryDataset):
+                    url = (
+                        'https://github.com/steveazzolin/gnn_logic_global_expl/raw/master/'
+                        'datasets/BAMultiShapes/BAMultiShapes.pkl'
+                    )
+
+                    def __init__(self, root, transform=None, pre_transform=None, pre_filter=None):
+                        super().__init__(root, transform, pre_transform, pre_filter)
+                        self.load(self.processed_paths[0])
+
+                    @property
+                    def raw_file_names(self):
+                        return 'BAMultiShapes.pkl'
+
+                    @property
+                    def processed_file_names(self):
+                        return 'data.pt'
+
+                    def download(self):
+                        download_url(self.url, self.raw_dir)
+
+                    def process(self):
+                        with open(self.raw_paths[0], 'rb') as f:
+                            adjs, xs, ys = pickle.load(f)
+
+                        data_list: List[Data] = []
+                        for adj, x, y in zip(adjs, xs, ys):
+                            edge_index = torch.from_numpy(adj).nonzero().t()
+                            x = torch.from_numpy(np.array(x)).to(torch.float)
+                            data = Data(x=x, edge_index=edge_index, y=y)
+
+                            if self.pre_filter is not None and not self.pre_filter(data):
+                                continue
+                            if self.pre_transform is not None:
+                                data = self.pre_transform(data)
+                            data_list.append(data)
+
+                        self.save(data_list, self.processed_paths[0])
+
+                dataset = BAMultiShapesDatasetFallback(root=data_path, transform=transform)
 
         if dataset._data.x is None:
             dataset._data.x = torch.ones((dataset._data.y.size(0), 1), dtype=torch.float)
