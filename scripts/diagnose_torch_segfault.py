@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Diagnose torch import crashes without crashing the parent process.
-
-Usage:
-  python scripts/diagnose_torch_segfault.py
-"""
+"""Diagnose torch import crashes without crashing the parent process."""
 
 from __future__ import annotations
 
@@ -15,22 +11,32 @@ import sys
 def run_probe() -> tuple[int, str, str]:
     code = r'''
 import json
+import sys
+
+payload = {"python": sys.executable}
+
+# torch import is the critical gate.
 try:
-    import sys, numpy, torch
-    payload = {
-        "python": sys.executable,
-        "numpy": numpy.__version__,
-        "torch": torch.__version__,
-        "cuda_built": bool(torch.backends.cuda.is_built()),
-        "torch_cuda": str(torch.version.cuda),
-        "cuda_available": bool(torch.cuda.is_available()),
-    }
-    if torch.cuda.is_available():
-        payload["device0"] = torch.cuda.get_device_name(0)
-    print(json.dumps(payload))
+    import torch
 except Exception as e:
-    print(json.dumps({"error": f"{type(e).__name__}: {e}"}))
+    print(json.dumps({"error": f"TORCH_IMPORT: {type(e).__name__}: {e}"}))
     raise SystemExit(3)
+
+payload["torch"] = torch.__version__
+payload["cuda_built"] = bool(torch.backends.cuda.is_built())
+payload["torch_cuda"] = str(torch.version.cuda)
+payload["cuda_available"] = bool(torch.cuda.is_available())
+if torch.cuda.is_available():
+    payload["device0"] = torch.cuda.get_device_name(0)
+
+# numpy is informative only; do not fail probe on numpy import errors.
+try:
+    import numpy
+    payload["numpy"] = numpy.__version__
+except Exception as e:
+    payload["numpy_error"] = f"{type(e).__name__}: {e}"
+
+print(json.dumps(payload))
 '''
     proc = subprocess.run(
         [sys.executable, "-c", code],
@@ -63,9 +69,9 @@ def main() -> int:
     if out:
         print(f"- stdout: {out}")
 
-    print("\nLikely cause: missing or incompatible torch/PyG/CUDA/native binary stack in this environment.")
+    print("\nLikely cause: torch/PyG/CUDA native binary mismatch in this environment.")
     print("Suggested clean reinstall (CUDA 12.1 example used by this repo):")
-    print("1) python -m pip uninstall -y torch torchvision torchaudio torch-geometric pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv numpy")
+    print("1) python -m pip uninstall -y torch torchvision torchaudio torch-geometric pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv")
     print("2) python -m pip install --no-cache-dir 'numpy<2'")
     print("3) python -m pip install --no-cache-dir torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121")
     print("4) python -m pip install --no-cache-dir torch-geometric==2.6.1")
