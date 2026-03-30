@@ -584,6 +584,14 @@ def load_graph_task(params):
     data_path = params['data_path']
     split_setting = params['split']
 
+    canonical_name = str(name).lower().replace('-', '').replace('_', '')
+    if canonical_name in ['ba2motifs', 'ba2motif']:
+        name = 'ba2motifs'
+    elif canonical_name in ['bamultishapes', 'bamultishape']:
+        name = 'bamultishapes'
+
+    assert split_setting == 'public'
+
     if params['node_pe'] == 'rw':
         transform = T.Compose([T.AddRandomWalkPE(params['node_pe_dim'], 'pe')])
     elif params['node_pe'] == 'lap':
