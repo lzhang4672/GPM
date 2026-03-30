@@ -682,7 +682,7 @@ def load_graph_task(params):
             splits = [get_graph_split(dataset, split_setting)] * params['split_repeat']
             return dataset, splits
 
-    elif name in ['ba2motifs', 'bamultishapes']:
+    elif name in ['ba2motifs', 'bamultishapes', 'ba_multi_shapes', 'ba-multishapes', 'BAMultiShapes']:
         from torch_geometric.datasets import BA2MotifDataset, BAMultiShapesDataset
 
         if name == 'ba2motifs':
