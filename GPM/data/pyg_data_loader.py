@@ -97,9 +97,15 @@ def get_link_split(dataset):
     return splits
 
 
-def get_graph_split(dataset):
-    train_split = 0.8
-    val_split = 0.1
+def get_graph_split(dataset, setting='public'):
+    if setting == 'public':
+        train_split = 0.8
+        val_split = 0.1
+    elif setting == 'train80_test20':
+        train_split = 0.8
+        val_split = 0.0
+    else:
+        raise ValueError(f"Unsupported graph split setting: {setting}")
 
     num_graphs = len(dataset)
     idx = torch.randperm(num_graphs)
@@ -574,7 +580,13 @@ def load_graph_task(params):
     data_path = params['data_path']
     split_setting = params['split']
 
-    assert split_setting == 'public'
+    canonical_name = str(name).lower().replace('-', '').replace('_', '')
+    if canonical_name in ['ba2motifs', 'ba2motif']:
+        name = 'ba2motifs'
+    elif canonical_name in ['bamultishapes', 'bamultishape']:
+        name = 'bamultishapes'
+
+    assert split_setting in ['public', 'train80_test20']
 
     if params['node_pe'] == 'rw':
         transform = T.Compose([T.AddRandomWalkPE(params['node_pe_dim'], 'pe')])
@@ -669,8 +681,88 @@ def load_graph_task(params):
             return {'train': train_set, 'val': val_set, 'test': test_set}, None
 
         else:
-            splits = [get_graph_split(dataset)] * params['split_repeat']
+            splits = [get_graph_split(dataset, split_setting)] * params['split_repeat']
             return dataset, splits
+
+
+    elif name in ['ba2motifs', 'bamultishapes', 'ba_multi_shapes', 'ba-multishapes', 'BAMultiShapes']:
+        from torch_geometric.datasets import BA2MotifDataset, BAMultiShapesDataset
+
+        if name == 'ba2motifs':
+            dataset = BA2MotifDataset(root=data_path, transform=transform)
+        else:
+            try:
+                dataset = BAMultiShapesDataset(root=data_path, transform=transform)
+            except FileNotFoundError as e:
+                if 'BAMultiShapes' not in str(e):
+                    raise
+
+                import pickle
+                from typing import List
+                from torch_geometric.data import InMemoryDataset, download_url
+
+                class BAMultiShapesDatasetFallback(InMemoryDataset):
+                    url = (
+                        'https://github.com/steveazzolin/gnn_logic_global_expl/raw/master/'
+                        'datasets/BAMultiShapes/BAMultiShapes.pkl'
+                    )
+
+                    def __init__(self, root, transform=None, pre_transform=None, pre_filter=None):
+                        super().__init__(root, transform, pre_transform, pre_filter)
+                        self.load(self.processed_paths[0])
+
+                    @property
+                    def raw_file_names(self):
+                        return 'BAMultiShapes.pkl'
+
+                    @property
+                    def processed_file_names(self):
+                        return 'data.pt'
+
+                    def download(self):
+                        download_url(self.url, self.raw_dir)
+
+                    def process(self):
+                        with open(self.raw_paths[0], 'rb') as f:
+                            adjs, xs, ys = pickle.load(f)
+
+                        data_list: List[Data] = []
+                        for adj, x, y in zip(adjs, xs, ys):
+                            edge_index = torch.from_numpy(adj).nonzero().t()
+                            x = torch.from_numpy(np.array(x)).to(torch.float)
+                            data = Data(x=x, edge_index=edge_index, y=y)
+
+                            if self.pre_filter is not None and not self.pre_filter(data):
+                                continue
+                            if self.pre_transform is not None:
+                                data = self.pre_transform(data)
+                            data_list.append(data)
+
+                        self.save(data_list, self.processed_paths[0])
+
+                dataset = BAMultiShapesDatasetFallback(root=data_path, transform=transform)
+
+        if dataset._data.x is None:
+            dataset._data.x = torch.ones((dataset._data.y.size(0), 1), dtype=torch.float)
+
+        x_arr = dataset._data.x.detach().cpu().numpy()
+        if x_arr.ndim == 1:
+            x_arr = x_arr[:, None]
+        unique_x, x_idx = np.unique(x_arr, axis=0, return_inverse=True)
+        dataset._data.x_feat = torch.tensor(unique_x, dtype=torch.float)
+        dataset._data.x = torch.tensor(x_idx, dtype=torch.long).unsqueeze(-1)
+
+        if dataset._data.edge_attr is not None:
+            edge_arr = dataset._data.edge_attr.detach().cpu().numpy()
+            if edge_arr.ndim == 1:
+                edge_arr = edge_arr[:, None]
+            unique_e, e_idx = np.unique(edge_arr, axis=0, return_inverse=True)
+            dataset._data.e_feat = torch.tensor(unique_e, dtype=torch.float)
+            dataset._data.edge_attr = torch.tensor(e_idx, dtype=torch.long).unsqueeze(-1)
+
+        splits = [get_graph_split(dataset, split_setting)] * params['split_repeat']
+
+        return dataset, splits
 
     elif name in ['mutag', 'nci1', 'dd', 'proteins', 'enzymes']:
         assert split_setting == 'public'
@@ -694,7 +786,7 @@ def load_graph_task(params):
             dataset._data.e_feat = e_feat.float()
             dataset._data.edge_attr = edge_attr_idx
 
-        splits = [get_graph_split(dataset)] * params['split_repeat']
+        splits = [get_graph_split(dataset, split_setting)] * params['split_repeat']
 
         return dataset, splits
 
@@ -733,7 +825,7 @@ def load_graph_task(params):
         num_feat = dataset.x.max().item() + 1
         dataset._data.x_feat = F.one_hot(torch.arange(num_feat), num_classes=num_feat).float()
 
-        splits = [get_graph_split(dataset)] * params['split_repeat']
+        splits = [get_graph_split(dataset, split_setting)] * params['split_repeat']
 
         return dataset, splits
 
