@@ -107,7 +107,7 @@ def get_graph_split(dataset, setting='public'):
         train_split = 0.8
         val_split = 0.0
     else:
-        raise ValueError(f"Graph split setting error: {setting}")
+        raise ValueError(f"Unsupported graph split setting: {setting}")
 
     num_graphs = len(dataset)
     idx = torch.randperm(num_graphs)
@@ -590,7 +590,7 @@ def load_graph_task(params):
     elif canonical_name in ['bamultishapes', 'bamultishape']:
         name = 'bamultishapes'
 
-    assert split_setting == 'public'
+    assert split_setting in ['public', 'train80_test20']
 
     if params['node_pe'] == 'rw':
         transform = T.Compose([T.AddRandomWalkPE(params['node_pe_dim'], 'pe')])
@@ -764,7 +764,7 @@ def load_graph_task(params):
             dataset._data.e_feat = torch.tensor(unique_e, dtype=torch.float)
             dataset._data.edge_attr = torch.tensor(e_idx, dtype=torch.long).unsqueeze(-1)
 
-        splits = [get_graph_split(dataset)] * params['split_repeat']
+        splits = [get_graph_split(dataset, split_setting)] * params['split_repeat']
 
         return dataset, splits
 
