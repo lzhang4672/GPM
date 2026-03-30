@@ -297,6 +297,14 @@ class Model(nn.Module):
         all_nid = pattern_set['nid']
         selected_patterns = all_patterns[:, graphs, :]
         selected_nid = all_nid[:, graphs, :]
+
+        # Robustness: some dataset pipelines may store nid with a trailing singleton
+        # feature dimension (e.g., [h, n, k, 1]). Normalize to [h, n, k].
+        if selected_nid.dim() == 4 and selected_nid.size(-1) == 1:
+            selected_nid = selected_nid.squeeze(-1)
+        elif selected_nid.dim() > 3:
+            selected_nid = selected_nid[..., 0]
+
         h, num_graphs, k = selected_nid.shape
 
         # In training, selecting a subset of patterns
