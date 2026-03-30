@@ -740,10 +740,21 @@ def load_graph_task(params):
 
         if dataset._data.x is None:
             dataset._data.x = torch.ones((dataset._data.y.size(0), 1), dtype=torch.float)
-        dataset._data.x_feat = dataset._data.x.float()
+
+        x_arr = dataset._data.x.detach().cpu().numpy()
+        if x_arr.ndim == 1:
+            x_arr = x_arr[:, None]
+        unique_x, x_idx = np.unique(x_arr, axis=0, return_inverse=True)
+        dataset._data.x_feat = torch.tensor(unique_x, dtype=torch.float)
+        dataset._data.x = torch.tensor(x_idx, dtype=torch.long).unsqueeze(-1)
 
         if dataset._data.edge_attr is not None:
-            dataset._data.e_feat = dataset._data.edge_attr.float()
+            edge_arr = dataset._data.edge_attr.detach().cpu().numpy()
+            if edge_arr.ndim == 1:
+                edge_arr = edge_arr[:, None]
+            unique_e, e_idx = np.unique(edge_arr, axis=0, return_inverse=True)
+            dataset._data.e_feat = torch.tensor(unique_e, dtype=torch.float)
+            dataset._data.edge_attr = torch.tensor(e_idx, dtype=torch.long).unsqueeze(-1)
 
         splits = [get_graph_split(dataset)] * params['split_repeat']
 
