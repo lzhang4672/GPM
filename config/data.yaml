@@ -172,7 +172,17 @@ link-computers:
   num_tasks: 1
 
 
+
 # Graph Classification
+
+ba2motifs:
+  task: graph
+  metric: acc
+  num_tasks: 1
+bamultishapes:
+  task: graph
+  metric: acc
+  num_tasks: 1
 zinc:
   task: graph
   metric: mae
